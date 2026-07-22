@@ -1,0 +1,153 @@
+{
+  "architectReview": {
+    "architectureStatus": "CLEAR",
+    "productStatus": "CLEAR",
+    "codeStatus": "CLEAR",
+    "recommendation": "APPROVE",
+    "evidence": "G002 cleanup and strict review 17-G2CleanupReview found zero blockers and direct coverage of all automated lifecycle contracts.",
+    "commands": [
+      "architect agent 17-G2CleanupReview"
+    ],
+    "blockers": []
+  },
+  "executorQa": {
+    "status": "passed",
+    "e2eStatus": "passed",
+    "redTeamStatus": "passed",
+    "evidence": "G002 QA 18-G2QaFinal covered delayed begin, pending/rejected teardown, mismatch, overlap, overflow, partial reset, and exactly-once teardown; fresh full gate passed.",
+    "e2eCommands": [
+      "cargo test --workspace",
+      "npm run test:ui"
+    ],
+    "redTeamCommands": [
+      "npm run test:ui",
+      "cargo test -p keyforge-app"
+    ],
+    "artifactRefs": [
+      {
+        "id": "g002-test-report",
+        "kind": "package-test-report",
+        "path": ".gjc/_session-019f5611-74bb-7000-ac9a-9eea41806931/ultragoal/artifacts/g002-test-report.json",
+        "description": "Fresh full-gate automated lifecycle evidence"
+      }
+    ],
+    "contractCoverage": [
+      {
+        "id": "capture-lifecycle",
+        "contractRef": "G002 automated capture lifecycle",
+        "obligation": "Native ownership and DOM fallback remain ordered across failure and race paths.",
+        "status": "covered",
+        "surfaceEvidenceRefs": [
+          "ui-tests",
+          "native-tests"
+        ],
+        "adversarialCaseRefs": [
+          "late-begin",
+          "pending-end",
+          "rejected-end",
+          "session-mismatch",
+          "native-dom-overlap",
+          "active-overflow"
+        ]
+      }
+    ],
+    "surfaceEvidence": [
+      {
+        "id": "ui-tests",
+        "contractRef": "ProfileEditor capture lifecycle",
+        "surface": "package",
+        "invocation": "npm run test:ui",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "native-tests",
+        "contractRef": "Windows capture guard invariants",
+        "surface": "package",
+        "invocation": "cargo test --workspace",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      }
+    ],
+    "adversarialCases": [
+      {
+        "id": "late-begin",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "late-begin",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "pending-end",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "pending-end",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "rejected-end",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "rejected-end",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "session-mismatch",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "session-mismatch",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "native-dom-overlap",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "native-dom-overlap",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      },
+      {
+        "id": "active-overflow",
+        "contractRef": "G002 automated capture lifecycle",
+        "scenario": "active-overflow",
+        "expectedBehavior": "Preserve native ownership, fail safely, and avoid stale or duplicate chord/session state.",
+        "verdict": "passed",
+        "artifactRefs": [
+          "g002-test-report"
+        ]
+      }
+    ],
+    "blockers": []
+  },
+  "iteration": {
+    "status": "passed",
+    "evidence": "Cleaner rerun and final strict review were zero-blocker; full Rust/UI/build gate reran clean after all test additions.",
+    "fullRerun": true,
+    "rerunCommands": [
+      "cargo fmt --all -- --check",
+      "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+      "cargo test --workspace",
+      "npm run test:ui",
+      "npm run build:ui"
+    ],
+    "blockers": []
+  }
+}

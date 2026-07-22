@@ -1,0 +1,25 @@
+[package]
+name = "keyforge-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+directories = "6.0"
+keyforge-config = { path = "../config" }
+keyforge-engine = { path = "../engine" }
+keyforge-platform-windows = { path = "../platform-windows" }
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[[bin]]
+name = "keyforge-daemon"
+path = "src/main.rs"

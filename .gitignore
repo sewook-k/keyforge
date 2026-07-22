@@ -1,0 +1,7 @@
+/target/
+**/node_modules/
+/apps/ui/dist/
+*.log
+*.tmp
+.idea/
+.vscode/

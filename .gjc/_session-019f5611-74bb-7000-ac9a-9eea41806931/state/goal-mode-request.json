@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "kind": "goal_mode_request",
+  "source": "ultragoal",
+  "objective": "Complete the durable ultragoal plan in .gjc/ultragoal/goals.json, including later accepted/appended stories, under the original brief constraints; use .gjc/ultragoal/ledger.jsonl as the audit trail.",
+  "createdAt": "2026-07-12T12:27:25.347Z",
+  "goalsPath": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\_session-019f5611-74bb-7000-ac9a-9eea41806931\\ultragoal\\goals.json",
+  "sessionId": "019f5611-74bb-7000-ac9a-9eea41806931"
+}

@@ -1,0 +1,24 @@
+[workspace]
+members = [
+  "crates/config",
+  "crates/engine",
+  "crates/platform-windows",
+  "crates/daemon",
+  "src-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.17"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["KeyForge contributors"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }

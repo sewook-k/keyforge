@@ -1,0 +1,65 @@
+{
+  "skill": "ultragoal",
+  "status": "complete",
+  "current_phase": "complete",
+  "active": false,
+  "goals": [
+    {
+      "id": "G001",
+      "title": "실행 동작의 키 직접 누르기에서 전송할 키 조합을 눌러도 표시되지 않는 버그를 원인 진단하고 수정한다. 입력 캡처와 출력 캡처가 같은 네이...",
+      "status": "complete"
+    }
+  ],
+  "counts": {
+    "pending": 0,
+    "active": 0,
+    "complete": 1,
+    "failed": 0,
+    "blocked": 0,
+    "review_blocked": 0,
+    "superseded": 0
+  },
+  "ledger_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\_session-019f5611-74bb-7000-ac9a-9eea41806931\\ultragoal\\ledger.jsonl",
+  "brief_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\_session-019f5611-74bb-7000-ac9a-9eea41806931\\ultragoal\\brief.md",
+  "goals_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\_session-019f5611-74bb-7000-ac9a-9eea41806931\\ultragoal\\goals.json",
+  "version": 2,
+  "updated_at": "2026-07-12T13:07:30.608Z",
+  "receipt": {
+    "version": 1,
+    "skill": "ultragoal",
+    "owner": "gjc-runtime",
+    "command": "gjc ultragoal (reconcile)",
+    "state_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\state\\sessions\\019f5611-74bb-7000-ac9a-9eea41806931\\skill-active-state.json",
+    "storage_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\state\\sessions\\019f5611-74bb-7000-ac9a-9eea41806931\\ultragoal-state.json",
+    "mutated_at": "2026-07-12T13:07:30.608Z",
+    "fresh_until": "2026-07-12T13:37:30.608Z",
+    "status": "fresh",
+    "mutation_id": "ultragoal:reconcile:2026-07-12T13:07:30.608Z",
+    "verb": "reconcile",
+    "from_phase": "complete",
+    "to_phase": "complete",
+    "forced": true,
+    "content_sha256": {
+      "algorithm": "sha256",
+      "value": "27926ca83e35b533617101036764c1134752a7def0866de45e1a01a492e9a76f",
+      "covered_path": "C:\\Users\\LINA INTERNET\\Documents\\Codex\\2026-07-10\\asdfsadf-2\\keyforge\\.gjc\\_session-019f5611-74bb-7000-ac9a-9eea41806931\\state\\ultragoal-state.json",
+      "computed_at": "2026-07-12T13:07:30.651Z"
+    }
+  },
+  "session_id": "019f5611-74bb-7000-ac9a-9eea41806931",
+  "handoff_to": "ralplan",
+  "handoff_at": "2026-07-12T11:30:12.880Z",
+  "gjc_objective": "Complete the durable ultragoal plan in .gjc/ultragoal/goals.json, including later accepted/appended stories, under the original brief constraints; use .gjc/ultragoal/ledger.jsonl as the audit trail.",
+  "nudge_budget": 10,
+  "nudge_count": 0,
+  "nudge_remaining": 10,
+  "nudge_goal_id": "G001",
+  "nudge_target_kind": "final_aggregate_receipt",
+  "latestLedgerEvent": {
+    "event": "goal_checkpointed",
+    "goalId": "G001",
+    "timestamp": "2026-07-12T13:02:21.667Z",
+    "evidence": "Fixed input-to-output native session handoff, added success/rejection and output save regressions, documented core automated/manual QA matrix, passed automated regression gate, and produced non-overwriting portable/NSIS artifacts with SHA-256 receipts."
+  },
+  "state_revision": 17
+}

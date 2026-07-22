@@ -1,0 +1,18 @@
+{
+  "name": "keyforge",
+  "private": true,
+  "version": "0.1.17",
+  "scripts": {
+    "dev": "npm --workspace @keyforge/ui run dev",
+    "build:ui": "npm --workspace @keyforge/ui run build",
+    "test:ui": "npm --workspace @keyforge/ui run test",
+    "test:regression": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\regression.ps1",
+    "test:release-gate": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\regression.ps1 -BuildRelease -RequireManual",
+    "tauri": "tauri",
+    "build": "npm run build:ui && tauri build"
+  },
+  "workspaces": ["apps/ui"],
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
