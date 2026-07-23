@@ -8,7 +8,7 @@ describe('KeyForge app', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '키 입력을 원하는 방식으로' })).toBeInTheDocument();
-    expect(screen.getByLabelText('KeyForge 버전 0.1.17')).toHaveTextContent('v0.1.17');
+    expect(screen.getByLabelText('KeyForge 버전 0.1.19')).toHaveTextContent('v0.1.19');
     expect(screen.getByText('입력 엔진', { selector: '.engine-pill span' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '주 메뉴' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '프로필' })).toBeInTheDocument();

@@ -67,7 +67,19 @@ try {
   Invoke-Checked -Name 'Dependency audit' -FilePath $npm -Arguments @('audit', '--json')
 
   if ($BuildRelease) {
-    Invoke-Checked -Name 'Tauri Windows release build' -FilePath $npm -Arguments @('run', 'tauri', '--', 'build')
+    $previousCi = $env:CI
+    try {
+      $env:CI = 'true'
+      Invoke-Checked -Name 'Tauri Windows release build' -FilePath $npm -Arguments @('run', 'tauri', '--', 'build')
+    }
+    finally {
+      if ($null -eq $previousCi) {
+        Remove-Item Env:CI -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:CI = $previousCi
+      }
+    }
     $portable = Join-Path $root 'target\release\keyforge-app.exe'
     $installer = Join-Path $root "target\release\bundle\nsis\KeyForge_${version}_x64-setup.exe"
     foreach ($artifact in @($portable, $installer)) {

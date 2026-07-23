@@ -810,13 +810,19 @@ fn process_event_with_injector(
 
 fn inject_action(dispatch: &DispatchAction) -> bool {
     match (&dispatch.action, dispatch.phase) {
-        (Action::SendKeys { chord }, phase) => inject_keys(chord, phase),
+        (Action::SendKeys { chord }, phase) => {
+            inject_keys(chord, phase, &dispatch.transient_release_inputs)
+        }
         (Action::SendMouse { button }, DispatchActionPhase::Invoke) => inject_mouse(*button),
         _ => false,
     }
 }
 
-fn inject_keys(chord: &[String], phase: DispatchActionPhase) -> bool {
+fn inject_keys(
+    chord: &[String],
+    phase: DispatchActionPhase,
+    transient_release_inputs: &[String],
+) -> bool {
     let Some(keys) = chord
         .iter()
         .map(|key| name_to_key_spec(key))
@@ -824,7 +830,14 @@ fn inject_keys(chord: &[String], phase: DispatchActionPhase) -> bool {
     else {
         return false;
     };
-    let planned = plan_key_events(&keys, phase);
+    let Some(transient_release_keys) = transient_release_inputs
+        .iter()
+        .map(|key| name_to_key_spec(key))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let planned = plan_wrapped_key_events(&keys, phase, &transient_release_keys);
     let inputs: Vec<_> = planned
         .iter()
         .map(|&(key, flags)| key_input(key, flags))
@@ -839,10 +852,9 @@ fn inject_keys(chord: &[String], phase: DispatchActionPhase) -> bool {
     if sent == inputs.len() as u32 {
         true
     } else {
-        let cleanup: Vec<_> = keys
-            .iter()
-            .rev()
-            .map(|&key| key_input(key, KEYEVENTF_KEYUP))
+        let cleanup: Vec<_> = plan_cleanup_key_events(&keys, &transient_release_keys)
+            .into_iter()
+            .map(|(key, flags)| key_input(key, flags))
             .collect();
         unsafe {
             SendInput(
@@ -871,6 +883,36 @@ fn plan_key_events(keys: &[KeySpec], phase: DispatchActionPhase) -> Vec<(KeySpec
             .map(|key| (key, KEYEVENTF_KEYUP))
             .collect(),
     }
+}
+
+fn plan_wrapped_key_events(
+    keys: &[KeySpec],
+    phase: DispatchActionPhase,
+    transient_release_keys: &[KeySpec],
+) -> Vec<(KeySpec, u32)> {
+    if phase != DispatchActionPhase::Invoke || transient_release_keys.is_empty() {
+        return plan_key_events(keys, phase);
+    }
+    transient_release_keys
+        .iter()
+        .rev()
+        .copied()
+        .map(|key| (key, KEYEVENTF_KEYUP))
+        .chain(plan_key_events(keys, phase))
+        .chain(transient_release_keys.iter().copied().map(|key| (key, 0)))
+        .collect()
+}
+
+fn plan_cleanup_key_events(
+    keys: &[KeySpec],
+    transient_release_keys: &[KeySpec],
+) -> Vec<(KeySpec, u32)> {
+    keys.iter()
+        .rev()
+        .copied()
+        .map(|key| (key, KEYEVENTF_KEYUP))
+        .chain(transient_release_keys.iter().copied().map(|key| (key, 0)))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1527,6 +1569,41 @@ mod tests {
         assert_eq!(
             plan_key_events(&[meta], DispatchActionPhase::Invoke),
             vec![(meta, 0), (meta, KEYEVENTF_KEYUP)]
+        );
+    }
+
+    #[test]
+    fn wraps_invoke_shortcuts_with_transient_modifier_release_and_restore() {
+        let control = name_to_key_spec("ControlLeft").unwrap();
+        let shift = name_to_key_spec("ShiftLeft").unwrap();
+        let four = name_to_key_spec("4").unwrap();
+        let meta = name_to_key_spec("MetaLeft").unwrap();
+
+        assert_eq!(
+            plan_wrapped_key_events(
+                &[control, shift, four],
+                DispatchActionPhase::Invoke,
+                &[meta],
+            ),
+            vec![
+                (meta, KEYEVENTF_KEYUP),
+                (control, 0),
+                (shift, 0),
+                (four, 0),
+                (four, KEYEVENTF_KEYUP),
+                (shift, KEYEVENTF_KEYUP),
+                (control, KEYEVENTF_KEYUP),
+                (meta, 0),
+            ]
+        );
+        assert_eq!(
+            plan_cleanup_key_events(&[control, shift, four], &[meta]),
+            vec![
+                (four, KEYEVENTF_KEYUP),
+                (shift, KEYEVENTF_KEYUP),
+                (control, KEYEVENTF_KEYUP),
+                (meta, 0),
+            ]
         );
     }
 

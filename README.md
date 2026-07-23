@@ -31,4 +31,4 @@ remains disabled until an authoritative device-aware interception layer is
 validated.
 
 See [Known limitations](docs/KNOWN_LIMITATIONS.md) for the exact native feature
-boundary of version 0.1.17.
+boundary of version 0.1.19.

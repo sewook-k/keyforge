@@ -60,6 +60,7 @@ pub struct DispatchAction {
     pub rule_id: Uuid,
     pub action: Action,
     pub phase: DispatchActionPhase,
+    pub transient_release_inputs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,6 +321,17 @@ impl RuntimeEngine {
                     .iter()
                     .all(|required| pressed_contains(&self.pressed, required))
             {
+                let transient_release_inputs = if rule.stateful_remap {
+                    Vec::new()
+                } else {
+                    transient_modifier_releases(
+                        &self.pressed,
+                        &self.held_outputs,
+                        &rule.chord,
+                        &rule.action,
+                        &key,
+                    )
+                };
                 let action = DispatchAction {
                     profile_id: rule.profile_id,
                     rule_id: rule.rule_id,
@@ -329,6 +341,7 @@ impl RuntimeEngine {
                     } else {
                         DispatchActionPhase::Invoke
                     },
+                    transient_release_inputs,
                 };
                 if !rule.pass_through {
                     self.consumed_inputs.insert(key.clone());
@@ -356,6 +369,13 @@ impl RuntimeEngine {
                         rule_id: rule.rule_id,
                         action: rule.action.clone(),
                         phase: DispatchActionPhase::Invoke,
+                        transient_release_inputs: transient_modifier_releases(
+                            &self.pressed,
+                            &self.held_outputs,
+                            &rule.chord,
+                            &rule.action,
+                            &key,
+                        ),
                     }],
                     emergency_stop: false,
                 };
@@ -409,6 +429,77 @@ fn key_matches(actual: &str, required: &str) -> bool {
             "meta" => matches!(actual, "metaleft" | "metaright"),
             _ => false,
         }
+}
+
+fn keys_overlap(left: &str, right: &str) -> bool {
+    key_matches(left, right) || key_matches(right, left)
+}
+
+fn is_modifier_key(key: &str) -> bool {
+    matches!(
+        key,
+        "control"
+            | "controlleft"
+            | "controlright"
+            | "alt"
+            | "altleft"
+            | "altright"
+            | "shift"
+            | "shiftleft"
+            | "shiftright"
+            | "meta"
+            | "metaleft"
+            | "metaright"
+    )
+}
+
+fn transient_modifier_releases(
+    pressed: &BTreeSet<String>,
+    held_outputs: &BTreeMap<String, DispatchAction>,
+    trigger_chord: &[String],
+    action: &Action,
+    event_key: &str,
+) -> Vec<String> {
+    let Action::SendKeys { chord } = action else {
+        return Vec::new();
+    };
+    let output: Vec<_> = chord.iter().map(|key| normalize_key(key)).collect();
+    let mut releases = Vec::new();
+    for actual in pressed.iter() {
+        if actual == event_key || !is_modifier_key(actual) {
+            continue;
+        }
+        if !trigger_chord
+            .iter()
+            .any(|required| key_matches(actual, required))
+        {
+            continue;
+        }
+        let active_keys = held_outputs
+            .get(actual)
+            .and_then(|dispatch| match &dispatch.action {
+                Action::SendKeys { chord } => Some(
+                    chord
+                        .iter()
+                        .map(|key| normalize_key(key))
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_else(|| vec![actual.clone()]);
+        for active_key in active_keys {
+            if output
+                .iter()
+                .any(|output_key| keys_overlap(&active_key, output_key))
+            {
+                continue;
+            }
+            releases.push(active_key);
+        }
+    }
+    releases.sort();
+    releases.dedup();
+    releases
 }
 
 fn mouse_key(button: keyforge_config::MouseButton) -> &'static str {
@@ -782,6 +873,116 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn multi_key_shortcut_releases_only_source_modifiers_not_needed_by_output() {
+        let mut settings = Settings::default();
+        let mut profile = Profile::new("multi-key shortcut");
+        let mut rule = Rule::key_remap("S", "4");
+        rule.trigger = Trigger::Keyboard {
+            chord: vec!["MetaLeft".into(), "ShiftLeft".into(), "S".into()],
+            phase: TriggerPhase::Press,
+            gesture: TriggerGesture::Single,
+        };
+        rule.action = Action::SendKeys {
+            chord: vec!["ControlLeft".into(), "ShiftLeft".into(), "4".into()],
+        };
+        profile.rules.push(rule);
+        settings.profiles = vec![profile];
+
+        let rules = CompiledRules::compile(&settings).unwrap();
+        let mut engine = RuntimeEngine::new(rules);
+        for key in ["MetaLeft", "ShiftLeft"] {
+            let dispatch = engine.process(
+                &KeyEvent {
+                    key: key.into(),
+                    phase: KeyPhase::Down,
+                    origin: EventOrigin::Physical,
+                    repeat: false,
+                },
+                &MatchContext::default(),
+            );
+            assert!(dispatch.actions.is_empty());
+        }
+
+        let dispatch = engine.process(
+            &KeyEvent {
+                key: "S".into(),
+                phase: KeyPhase::Down,
+                origin: EventOrigin::Physical,
+                repeat: false,
+            },
+            &MatchContext::default(),
+        );
+
+        assert!(dispatch.suppress_original);
+        assert_eq!(dispatch.actions.len(), 1);
+        assert_eq!(dispatch.actions[0].phase, DispatchActionPhase::Invoke);
+        assert_eq!(
+            dispatch.actions[0].transient_release_inputs,
+            vec!["metaleft"]
+        );
+        assert!(matches!(
+            &dispatch.actions[0].action,
+            Action::SendKeys { chord }
+                if chord == &vec!["ControlLeft", "ShiftLeft", "4"]
+        ));
+    }
+
+    #[test]
+    fn remapped_modifier_shortcuts_release_the_active_output_not_the_physical_key() {
+        let mut settings = Settings::default();
+        let mut profile = Profile::new("remapped modifier shortcut");
+        profile
+            .rules
+            .push(Rule::key_remap("ControlLeft", "AltLeft"));
+        let mut rule = Rule::key_remap("K", "F24");
+        rule.trigger = Trigger::Keyboard {
+            chord: vec!["ControlLeft".into(), "K".into()],
+            phase: TriggerPhase::Press,
+            gesture: TriggerGesture::Single,
+        };
+        profile.rules.push(rule);
+        settings.profiles = vec![profile];
+
+        let rules = CompiledRules::compile(&settings).unwrap();
+        let mut engine = RuntimeEngine::new(rules);
+
+        let modifier_down = engine.process(
+            &KeyEvent {
+                key: "ControlLeft".into(),
+                phase: KeyPhase::Down,
+                origin: EventOrigin::Physical,
+                repeat: false,
+            },
+            &MatchContext::default(),
+        );
+        assert!(matches!(
+            &modifier_down.actions[0].action,
+            Action::SendKeys { chord } if chord == &vec!["AltLeft"]
+        ));
+
+        let dispatch = engine.process(
+            &KeyEvent {
+                key: "K".into(),
+                phase: KeyPhase::Down,
+                origin: EventOrigin::Physical,
+                repeat: false,
+            },
+            &MatchContext::default(),
+        );
+
+        assert!(dispatch.suppress_original);
+        assert_eq!(dispatch.actions.len(), 1);
+        assert_eq!(dispatch.actions[0].phase, DispatchActionPhase::Invoke);
+        assert_eq!(
+            dispatch.actions[0].transient_release_inputs,
+            vec!["altleft"]
+        );
+        assert!(matches!(
+            &dispatch.actions[0].action,
+            Action::SendKeys { chord } if chord == &vec!["F24"]
+        ));
+    }
     #[test]
     fn detects_duplicate_global_triggers() {
         let mut settings = settings_with_remap();

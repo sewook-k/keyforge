@@ -1,6 +1,6 @@
-# Known limitations in 0.1.17
+# Known limitations in 0.1.19
 
-KeyForge 0.1.17 intentionally focuses on stable global key and mouse remapping.
+KeyForge 0.1.19 intentionally focuses on stable global key and mouse remapping.
 
 - Global single-gesture keyboard and mouse remaps are connected to native
   low-level hooks and `SendInput`.
