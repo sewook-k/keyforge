@@ -1,0 +1,12 @@
+[package]
+name = "keyforge-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+keyforge-config = { path = "../config" }
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
