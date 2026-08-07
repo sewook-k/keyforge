@@ -25,7 +25,6 @@ Preserve fail-open handling, emergency stop (`Ctrl+Alt+Pause`), bounded executio
 - `crates/platform-windows/` — Windows hooks, injection, devices, PnP, and startup integration.
 - `crates/daemon/` — application service and orchestration boundary.
 - `src-tauri/` — desktop executable, IPC commands, tray/window lifecycle, capabilities, and packaging.
-- `scripts/regression.ps1` — automated and release regression gates.
 - `docs/` — architecture decision, limitations, threat model, and physical-Windows QA plan/results.
 
 ## Development Commands
@@ -84,7 +83,6 @@ The full Rust quality gates are `cargo fmt --all -- --check` and `cargo clippy -
 - `crates/platform-windows/src/windows_impl.rs` — hook, capture, inventory, and injection implementation.
 - `crates/daemon/src/lib.rs` — central `AppService`.
 - `src-tauri/src/lib.rs` / `src-tauri/src/main.rs` — desktop adapter and executable entry point.
-- `src-tauri/src/key_capture_guard.rs` — native defense for system-key capture such as Alt+Space.
 - `apps/ui/src/App.tsx` / `apps/ui/src/lib/bridge.ts` — UI root and IPC boundary.
 - `src-tauri/tauri.conf.json` — dev/build commands, product metadata, window, and NSIS configuration.
 - `docs/ADR-0001-architecture.md` — required subsystem boundaries.
@@ -93,7 +91,7 @@ The full Rust quality gates are `cargo fmt --all -- --check` and `cargo clippy -
 
 Use Rust stable with edition 2024 support, Node.js 20+, npm, Microsoft C++ Build Tools, and WebView2. Use Cargo for Rust and npm from the repository root for JavaScript; both lockfiles are committed. Do not substitute Bun, Yarn, or pnpm. Tauri development expects Vite at exactly `http://localhost:1420`.
 
-Keep version `0.1.14` (or its successor) synchronized across the Cargo workspace, root/UI package manifests, and `src-tauri/tauri.conf.json`; the regression script enforces this. Packaging targets current-user NSIS on Windows.
+Keep version `0.1.9` synchronized across the Cargo workspace, root/UI package manifests, and `src-tauri/tauri.conf.json`. Packaging targets current-user NSIS on Windows.
 
 ## Testing & QA
 
@@ -101,6 +99,5 @@ Keep version `0.1.14` (or its successor) synchronized across the Cargo workspace
 - UI tests are colocated under `apps/ui/src` and use Vitest, jsdom, Testing Library, `userEvent`, and `jest-dom`. Prefer roles, accessible names, focus, dialogs, and visible outcomes over implementation details.
 - Cover native and browser bridge paths when changing backend-sensitive behavior. Test structured errors, revisions, persistence, capture interruption, and state retention after refresh failures.
 - Add or strengthen the regression test for a failed matrix item before fixing the defect.
-- `npm run test:regression` is automated evidence only. Physical-keyboard P0/P1 checks in `docs/REGRESSION_TEST_PLAN.md` are required for release because injected input cannot validate the physical hook path.
 - Record hardware, build, time, result, and evidence in `docs/REGRESSION_MANUAL_RESULTS.md`. `PENDING` rows mean manual QA has not passed; never claim otherwise.
 - Windows-specific tests may touch HKCU startup registration or live device enumeration. Keep those environmental assumptions explicit when selecting focused tests.
