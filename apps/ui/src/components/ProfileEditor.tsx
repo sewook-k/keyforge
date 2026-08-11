@@ -19,7 +19,16 @@ import {
 import { makeId, makeRule } from '../data';
 import { KEY_OPTION_GROUPS, keyboardEventToKey, orderChord, parseChordText } from '../keyCatalog';
 import { keyforgeBridge, normalizeBridgeError, type KeyCaptureEvent } from '../lib/bridge';
-import type { Profile, ProfileScope, Rule, RuleAction, RuleTrigger, ScopeCondition } from '../types';
+import type {
+  ConnectedKeyboardActivation,
+  KeyboardDeviceInfo,
+  Profile,
+  ProfileScope,
+  Rule,
+  RuleAction,
+  RuleTrigger,
+  ScopeCondition,
+} from '../types';
 import { Badge, Button, Callout, IconButton, Modal, Toggle } from './common';
 
 type EditorTab = 'rules' | 'scope' | 'execution' | 'history';
@@ -53,7 +62,30 @@ function scopeForKind(kind: ProfileScope['kind']): ProfileScope {
   return { kind, conditions: { operator: 'and', conditions: [condition] } };
 }
 
-const CHORD_SELECT_SLOTS = 3;
+function activationForKeyboard(keyboard: KeyboardDeviceInfo): ConnectedKeyboardActivation {
+  return {
+    vendorId: keyboard.vendorId,
+    productId: keyboard.productId,
+    interfaceId: keyboard.interfaceId,
+    manufacturerContains: keyboard.manufacturer,
+    nameContains: keyboard.name,
+    isVirtual: keyboard.isVirtual,
+  };
+}
+
+function activationMatchesKeyboard(
+  activation: ConnectedKeyboardActivation,
+  keyboard: KeyboardDeviceInfo,
+) {
+  const hasHardwareIdentity = Boolean(activation.vendorId || activation.productId || activation.interfaceId);
+  return activation.isVirtual === keyboard.isVirtual
+    && activation.productId === keyboard.productId
+    && activation.interfaceId === keyboard.interfaceId
+    && activation.vendorId === keyboard.vendorId
+    && (hasHardwareIdentity || activation.nameContains === keyboard.name);
+}
+
+const CHORD_SELECT_SLOTS = 4;
 
 function chordWithSelectedKey(chord: string[], slot: number, key: string): string[] {
   const next = chord.slice(0, CHORD_SELECT_SLOTS);
@@ -268,7 +300,7 @@ function ChordSelectStrip({
   onChange: (chord: string[]) => void;
 }) {
   return (
-    <div className="field-grid field-grid--3">
+    <div className="field-grid field-grid--4">
       {Array.from({ length: CHORD_SELECT_SLOTS }, (_, slot) => (
         <KeySelect
           key={`${baseLabel}-${slot}`}
@@ -354,7 +386,7 @@ function RuleComposer({
         const detail = normalizeBridgeError(error).message;
         setCaptureError(awaitingTeardown
           ? `이전 키 캡처를 종료하지 못했습니다. 다시 시도하세요. ${detail}`
-          : `키 캡처 보호를 시작하지 못했습니다. ${detail}`);
+          : `키 캡처를 시작하지 못했습니다. ${detail}`);
       })
       .finally(() => setCaptureStarting(false));
   };
@@ -554,11 +586,27 @@ export function ProfileEditor({
   const [draft, setDraft] = useState<Profile | null>(profile);
   const [tab, setTab] = useState<EditorTab>('rules');
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [keyboards, setKeyboards] = useState<KeyboardDeviceInfo[]>([]);
+  const [keyboardLoadError, setKeyboardLoadError] = useState<string | null>(null);
+  const [keyboardsLoading, setKeyboardsLoading] = useState(false);
 
   useEffect(() => {
     setDraft(profile ? structuredClone(profile) : null);
     setTab(isNew ? 'scope' : 'rules');
   }, [isNew, profile]);
+
+  const loadKeyboards = useCallback(() => {
+    setKeyboardsLoading(true);
+    setKeyboardLoadError(null);
+    void keyforgeBridge.listConnectedKeyboards()
+      .then(setKeyboards)
+      .catch((error) => setKeyboardLoadError(normalizeBridgeError(error).message))
+      .finally(() => setKeyboardsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (open) loadKeyboards();
+  }, [loadKeyboards, open]);
 
   const dirty = useMemo(() => Boolean(profile && draft && JSON.stringify(profile) !== JSON.stringify(draft)), [draft, profile]);
 
@@ -599,6 +647,19 @@ export function ProfileEditor({
   };
 
   const setScope = (kind: ProfileScope['kind']) => setDraft({ ...draft, scope: scopeForKind(kind) });
+
+  const toggleKeyboardActivation = (keyboard: KeyboardDeviceInfo) => {
+    const activation = draft.activation ?? { connectedKeyboards: [] };
+    const selected = activation.connectedKeyboards.some((item) => activationMatchesKeyboard(item, keyboard));
+    setDraft({
+      ...draft,
+      activation: {
+        connectedKeyboards: selected
+          ? activation.connectedKeyboards.filter((item) => !activationMatchesKeyboard(item, keyboard))
+          : [...activation.connectedKeyboards, activationForKeyboard(keyboard)],
+      },
+    });
+  };
 
   return (
     <>
@@ -669,9 +730,23 @@ export function ProfileEditor({
             {tab === 'scope' && (
               <section>
                 {isNew && <Callout title="전역 범위가 기본값입니다.">앱이나 장치를 따로 선택하지 않아도 저장 즉시 모든 일반 입력에서 동작합니다.</Callout>}
-                <Callout tone="warning" title="현재 버전은 전역 범위만 실행합니다.">
-                  장치별 입력 출처를 정확히 구분하는 네이티브 계층이 준비될 때까지 앱·장치 조건은 선택할 수 없습니다. 이전 조건부 프로필은 설정을 보존한 채 전역 범위로 전환됩니다.
+                <Callout tone="warning" title="키보드 연결 조건은 프로필 활성화에 사용됩니다.">
+                  선택한 키보드가 연결되어 있을 때만 이 프로필을 적용합니다. Windows의 전역 키보드 후크는 입력을 발생시킨 물리 키보드를 구분하지 못하므로, 두 키보드가 동시에 연결되었을 때는 선택된 모든 프로필의 전역 규칙이 함께 적용됩니다.
                 </Callout>
+                <div className="section-heading"><div><h3>연결된 키보드</h3><p>제조사와 모델명을 확인해 이 프로필을 켤 키보드를 선택하세요. 아무것도 선택하지 않으면 항상 활성화됩니다.</p></div><Button size="small" onClick={loadKeyboards} disabled={keyboardsLoading}>{keyboardsLoading ? '찾는 중…' : '새로 고침'}</Button></div>
+                {keyboardLoadError && <Callout tone="danger" title="키보드 목록을 읽지 못했습니다.">{keyboardLoadError}</Callout>}
+                {!keyboardLoadError && !keyboardsLoading && keyboards.length === 0 && <Callout title="연결된 키보드를 찾지 못했습니다.">키보드를 연결한 뒤 새로 고침을 누르세요. 선택된 키보드 조건은 연결 정보가 확인될 때까지 적용되지 않습니다.</Callout>}
+                {keyboards.length > 0 && (
+                  <div className="settings-list settings-list--compact" aria-label="프로필 활성화 키보드">
+                    {keyboards.map((keyboard) => {
+                      const selected = (draft.activation?.connectedKeyboards ?? []).some((item) => activationMatchesKeyboard(item, keyboard));
+                      return <div className="setting-row" key={keyboard.id}>
+                        <div><strong>{keyboard.name}</strong><p>{keyboard.manufacturer ?? '제조사 정보 없음'} · {keyboard.vendorId && keyboard.productId ? `VID ${keyboard.vendorId} / PID ${keyboard.productId}` : 'Windows에서 제공한 키보드 정보'}</p></div>
+                        <Toggle checked={selected} onChange={() => toggleKeyboardActivation(keyboard)} label={`${keyboard.name} 연결 시 프로필 활성화`} />
+                      </div>;
+                    })}
+                  </div>
+                )}
                 <div className="section-heading"><div><h3>적용 범위</h3><p>이 프로필을 어느 곳에서 활성화할지 선택합니다.</p></div></div>
                 <div className="scope-options" role="radiogroup" aria-label="적용 범위">
                   {(['global', 'application', 'device', 'combined'] as ProfileScope['kind'][]).map((kind) => (

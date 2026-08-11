@@ -12,6 +12,8 @@ pub enum ValidationError {
     EmptyConditions(Uuid),
     #[error("profile {0} uses an application or device scope that is not supported by this build")]
     UnsupportedScope(Uuid),
+    #[error("profile {0} has a keyboard activation rule without a stable keyboard identifier")]
+    UnsafeKeyboardActivation(Uuid),
     #[error("profile {profile} contains duplicate rule id {rule}")]
     DuplicateRule { profile: Uuid, rule: Uuid },
     #[error("rule {0} has an empty keyboard chord")]
@@ -50,6 +52,24 @@ pub fn validate(settings: &Settings) -> Result<(), ValidationError> {
         }
         if !matches!(&profile.scope, ProfileScope::Global) {
             return Err(ValidationError::UnsupportedScope(profile.id));
+        }
+        if profile
+            .activation
+            .connected_keyboards
+            .iter()
+            .any(|keyboard| {
+                keyboard.vendor_id.as_deref().is_none_or(str::is_empty)
+                    && keyboard.product_id.as_deref().is_none_or(str::is_empty)
+                    && keyboard.interface_id.as_deref().is_none_or(str::is_empty)
+                    && keyboard
+                        .manufacturer_contains
+                        .as_deref()
+                        .is_none_or(str::is_empty)
+                    && keyboard.name_contains.as_deref().is_none_or(str::is_empty)
+                    && !keyboard.is_virtual
+            })
+        {
+            return Err(ValidationError::UnsafeKeyboardActivation(profile.id));
         }
         if let ProfileScope::Application { conditions }
         | ProfileScope::Device { conditions }

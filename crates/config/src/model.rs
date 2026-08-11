@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -45,11 +45,37 @@ pub struct Profile {
     #[serde(default)]
     pub scope: ProfileScope,
     #[serde(default)]
+    pub activation: ProfileActivation,
+    #[serde(default)]
     pub rules: Vec<Rule>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub last_run_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileActivation {
+    #[serde(default)]
+    pub connected_keyboards: Vec<ConnectedKeyboardActivation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedKeyboardActivation {
+    #[serde(default)]
+    pub vendor_id: Option<String>,
+    #[serde(default)]
+    pub product_id: Option<String>,
+    #[serde(default)]
+    pub interface_id: Option<String>,
+    #[serde(default)]
+    pub manufacturer_contains: Option<String>,
+    #[serde(default)]
+    pub name_contains: Option<String>,
+    #[serde(default)]
+    pub is_virtual: bool,
 }
 
 impl Profile {
@@ -62,6 +88,7 @@ impl Profile {
             archived: false,
             enable_on_startup: false,
             scope: ProfileScope::Global,
+            activation: ProfileActivation::default(),
             rules: Vec::new(),
             created_at: now,
             updated_at: now,

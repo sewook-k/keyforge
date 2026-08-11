@@ -113,13 +113,17 @@ const writeActivity = (result: ActionResult) => {
 
 const migrateMockSettings = (settings: Settings): Settings => ({
   ...settings,
-  schemaVersion: 3,
+  schemaVersion: 4,
   preferences: {
     ...defaultBootstrap.settings.preferences,
     ...settings.preferences,
     launchAtLogin: settings.preferences?.launchAtLogin ?? false,
   },
-  profiles: settings.profiles.map((profile) => ({ ...profile, scope: { kind: 'global' } })),
+  profiles: settings.profiles.map((profile) => ({
+    ...profile,
+    scope: { kind: 'global' },
+    activation: profile.activation ?? { connectedKeyboards: [] },
+  })),
 });
 
 export const keyforgeBridge = {

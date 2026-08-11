@@ -7,7 +7,7 @@
 //! it into a top-level system-menu command.
 
 #[cfg(windows)]
-use keyforge_daemon::{force_end_active_capture, record_window_system_key};
+use keyforge_daemon::record_window_system_key;
 
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -22,8 +22,9 @@ use windows::Win32::{
         Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LMENU, VK_RMENU},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::{
-            EnumChildWindows, GetWindowThreadProcessId, SC_KEYMENU, WM_ACTIVATEAPP, WM_CONTEXTMENU,
-            WM_MENUCHAR, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSDEADCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            EnumChildWindows, GetWindowThreadProcessId, SC_KEYMENU, WM_ACTIVATEAPP, WM_APPCOMMAND,
+            WM_CHAR, WM_CONTEXTMENU, WM_DEADCHAR, WM_KEYDOWN, WM_KEYUP, WM_MENUCHAR, WM_SYSCHAR,
+            WM_SYSCOMMAND, WM_SYSDEADCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
         },
     },
 };
@@ -228,10 +229,10 @@ unsafe extern "system" fn capture_guard_subclass_proc(
     _subclass_id: usize,
     _reference_data: usize,
 ) -> LRESULT {
-    if should_end_capture_for_app_deactivation(message, wparam) {
-        CAPTURE_ACTIVE.store(false, Ordering::Release);
-        clear_remembered_alt_side();
-        force_end_active_capture();
+    // WebView modal focus changes and Windows-shell chords can both produce a
+    // transient deactivation. The modal explicitly owns the capture session,
+    // so only Use, Cancel, close, destroy, or app exit may release it.
+    if is_app_deactivation_message(message, wparam) {
         return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     }
 
@@ -241,7 +242,7 @@ unsafe extern "system" fn capture_guard_subclass_proc(
         record_alt_space_fallback();
         return LRESULT(0);
     }
-    if should_capture_system_key(capture_active, message) {
+    if should_capture_window_key(capture_active, message) {
         let message_bits = lparam.0 as usize;
         let scan_code = ((message_bits >> 16) & 0xFF) as u32;
         let extended = message_bits & (1 << 24) != 0;
@@ -249,7 +250,7 @@ unsafe extern "system" fn capture_guard_subclass_proc(
             wparam.0 as u32,
             scan_code,
             extended,
-            message == WM_SYSKEYDOWN,
+            matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN),
         );
         // Returning zero prevents Tao/DefWindowProc from turning Alt+Space
         // into a system-menu command. The event was written to the same
@@ -297,15 +298,12 @@ fn record_alt_space_fallback() {
 /// Captures system key transitions before Tao/DefWindowProc can process a
 /// native accelerator such as Alt+Space.
 #[cfg(windows)]
-fn should_capture_system_key(capture_active: bool, message: u32) -> bool {
-    capture_active && matches!(message, WM_SYSKEYDOWN | WM_SYSKEYUP)
+fn should_capture_window_key(capture_active: bool, message: u32) -> bool {
+    capture_active && matches!(message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP)
 }
 
-/// `WM_ACTIVATEAPP(FALSE)` is a top-level application deactivation, unlike a
-/// WebView2 child `Focused(false)` notification. It is safe to use as the
-/// final guard against swallowing keys after the user switches applications.
 #[cfg(windows)]
-fn should_end_capture_for_app_deactivation(message: u32, wparam: WPARAM) -> bool {
+fn is_app_deactivation_message(message: u32, wparam: WPARAM) -> bool {
     message == WM_ACTIVATEAPP && wparam.0 == 0
 }
 
@@ -315,7 +313,14 @@ fn should_swallow_message(capture_active: bool, message: u32) -> bool {
     capture_active
         && matches!(
             message,
-            WM_SYSCOMMAND | WM_SYSCHAR | WM_SYSDEADCHAR | WM_MENUCHAR | WM_CONTEXTMENU
+            WM_SYSCOMMAND
+                | WM_SYSCHAR
+                | WM_SYSDEADCHAR
+                | WM_CHAR
+                | WM_DEADCHAR
+                | WM_MENUCHAR
+                | WM_CONTEXTMENU
+                | WM_APPCOMMAND
         )
 }
 
@@ -341,23 +346,23 @@ pub fn set_active(_active: bool) {}
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    use windows::Win32::UI::WindowsAndMessaging::{WM_ACTIVATEAPP, WM_SYSKEYDOWN, WM_SYSKEYUP};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        WM_ACTIVATEAPP, WM_APPCOMMAND, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    };
 
     #[test]
     fn capture_blocks_and_records_system_key_messages_while_active() {
-        assert!(should_capture_system_key(true, WM_SYSKEYDOWN));
-        assert!(should_capture_system_key(true, WM_SYSKEYUP));
-        assert!(!should_capture_system_key(false, WM_SYSKEYDOWN));
-        assert!(should_end_capture_for_app_deactivation(
-            WM_ACTIVATEAPP,
-            WPARAM(0)
-        ));
-        assert!(!should_end_capture_for_app_deactivation(
-            WM_ACTIVATEAPP,
-            WPARAM(1)
-        ));
+        assert!(should_capture_window_key(true, WM_SYSKEYDOWN));
+        assert!(should_capture_window_key(true, WM_SYSKEYUP));
+        assert!(should_capture_window_key(true, WM_KEYDOWN));
+        assert!(should_capture_window_key(true, WM_KEYUP));
+        assert!(!should_capture_window_key(false, WM_SYSKEYDOWN));
+        assert!(is_app_deactivation_message(WM_ACTIVATEAPP, WPARAM(0)));
+        assert!(!is_app_deactivation_message(WM_ACTIVATEAPP, WPARAM(1)));
         assert!(should_swallow_message(true, WM_SYSCOMMAND));
         assert!(should_swallow_message(true, WM_SYSCHAR));
+        assert!(should_swallow_message(true, WM_CHAR));
+        assert!(should_swallow_message(true, WM_APPCOMMAND));
         assert!(should_swallow_message(true, WM_MENUCHAR));
         assert!(should_swallow_message(true, WM_CONTEXTMENU));
         assert!(!should_swallow_message(true, WM_SYSKEYDOWN));

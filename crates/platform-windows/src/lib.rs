@@ -127,8 +127,6 @@ mod portable_stub {
     pub fn record_window_system_key(_: u32, _: u32, _: bool, _: bool) -> bool {
         false
     }
-
-    pub fn force_end_active_capture() {}
 }
 
 #[cfg(not(windows))]

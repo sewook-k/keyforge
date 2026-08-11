@@ -45,6 +45,7 @@ export const makeProfile = (name = '새 전역 프로필'): Profile => {
     name,
     enabled: true,
     scope: { kind: 'global' },
+    activation: { connectedKeyboards: [] },
     rules: [],
     enableOnStartup: false,
     archived: false,
@@ -85,7 +86,7 @@ const defaultProfiles: Profile[] = [
 ];
 
 export const defaultSettings: Settings = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   revision: 18,
   updatedAt: now,
   profiles: defaultProfiles,

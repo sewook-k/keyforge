@@ -75,7 +75,7 @@ fn bind_key_capture_window<R: Runtime>(
         )
     })?;
     service.set_key_capture_window(window.hwnd()?.0 as isize);
-    key_capture_guard::install(app, MAIN_WINDOW_LABEL)?;
+
     Ok(())
 }
 
@@ -244,17 +244,15 @@ fn begin_key_capture(
     service: State<'_, Service>,
     app: AppHandle,
 ) -> Result<KeyCaptureSession, String> {
-    show_main_window(&app);
     bind_key_capture_window(&app)
         .map_err(|error| format!("failed to prepare the key capture window: {error}"))?;
-    let session = service.begin_key_capture()?;
-    if let Err(error) = key_capture_guard::activate(&app, MAIN_WINDOW_LABEL) {
-        service.end_key_capture(session.session_id);
+    key_capture_guard::activate(&app, MAIN_WINDOW_LABEL)
+        .map_err(|error| format!("failed to activate native key capture guard: {error}"))?;
+
+    let session = service.begin_key_capture().inspect_err(|_| {
         key_capture_guard::set_active(false);
-        return Err(format!(
-            "failed to activate native key capture guard: {error}"
-        ));
-    }
+    })?;
+
     Ok(session)
 }
 
@@ -333,6 +331,7 @@ pub fn run() {
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Ready) {
             let _ = bind_key_capture_window(app);
+            let _ = key_capture_guard::install(app, MAIN_WINDOW_LABEL);
             if let Some(service) = app.try_state::<Service>()
                 && !service.start_minimized()
             {

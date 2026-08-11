@@ -302,6 +302,8 @@ kbd { padding: 2px 6px; border: 1px solid var(--border-strong); border-bottom-wi
 .field-grid { display: grid; gap: 11px; }
 .field-grid--2 { grid-template-columns: 1fr 1fr; }
 .field-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.field-grid--4 { grid-template-columns: repeat(4, 1fr); }
+
 .settings-list { overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .settings-list--compact { margin-top: 14px; }
 .setting-row { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 12px; border-top: 1px solid var(--border); }
@@ -562,7 +564,7 @@ kbd { padding: 2px 6px; border: 1px solid var(--border-strong); border-bottom-wi
   .search-field { width: 100%; }
   .filter-tabs { overflow-x: auto; }
   .view-switch { display: none; }
-  .field-grid--2, .field-grid--3, .scope-options { grid-template-columns: 1fr; }
+  .field-grid--2, .field-grid--3, .field-grid--4, .scope-options { grid-template-columns: 1fr; }
   .composer-card__main--keys { align-items: stretch; flex-direction: column; }
   .key-input-controls, .key-chord-controls, .key-output-controls { min-width: 0; grid-template-columns: 1fr; }
   .key-detail-grid { grid-template-columns: 1fr 1fr; }

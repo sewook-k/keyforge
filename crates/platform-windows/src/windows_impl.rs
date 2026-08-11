@@ -67,18 +67,35 @@ pub fn list_connected_keyboards() -> Result<Vec<KeyboardDeviceInfo>, DeviceInven
         .filter_map(|device| unsafe { keyboard_device_info(device).ok() })
         .collect::<Vec<_>>();
     for keyboard in &mut keyboards {
-        let Some(metadata) = pnp_metadata.remove(&normalize_device_path(&keyboard.device_path))
-        else {
-            continue;
-        };
-        if let Some(display_name) = metadata.display_name {
-            keyboard.name = display_name;
+        if let Some(metadata) = pnp_metadata.remove(&normalize_device_path(&keyboard.device_path)) {
+            let display_name = metadata.display_name;
+            let manufacturer = metadata.manufacturer;
+            let instance_id = metadata.instance_id;
+            keyboard.name = human_keyboard_name(
+                display_name.as_deref(),
+                manufacturer.as_deref(),
+                keyboard.vendor_id.as_deref(),
+                keyboard.product_id.as_deref(),
+                instance_id.as_deref(),
+                keyboard.is_virtual,
+            );
+            keyboard.manufacturer = manufacturer;
+            keyboard.instance_id = instance_id;
+            keyboard.container_id = metadata.container_id;
+            keyboard.hardware_ids = metadata.hardware_ids;
+            keyboard.location_paths = metadata.location_paths;
+        } else {
+            // Raw Input remains useful even when SetupAPI cannot enrich one
+            // endpoint. Never expose the opaque HID path as the device name.
+            keyboard.name = human_keyboard_name(
+                None,
+                None,
+                keyboard.vendor_id.as_deref(),
+                keyboard.product_id.as_deref(),
+                Some(&keyboard.device_path),
+                keyboard.is_virtual,
+            );
         }
-        keyboard.manufacturer = metadata.manufacturer;
-        keyboard.instance_id = metadata.instance_id;
-        keyboard.container_id = metadata.container_id;
-        keyboard.hardware_ids = metadata.hardware_ids;
-        keyboard.location_paths = metadata.location_paths;
     }
     keyboards.sort_by(|left, right| {
         left.name
@@ -213,13 +230,112 @@ fn keyboard_display_name(
     product: Option<&str>,
     virtual_device: bool,
 ) -> String {
+    human_keyboard_name(None, None, vendor, product, None, virtual_device)
+}
+
+fn human_keyboard_name(
+    display_name: Option<&str>,
+    manufacturer: Option<&str>,
+    vendor: Option<&str>,
+    product: Option<&str>,
+    instance_id: Option<&str>,
+    virtual_device: bool,
+) -> String {
     if virtual_device {
         return "가상 또는 원격 키보드".into();
     }
-    match (vendor, product) {
-        (Some(vendor), Some(product)) => format!("HID 키보드 · VID_{vendor} / PID_{product}"),
-        _ => "Windows 키보드".into(),
+    if let Some(name) = display_name.filter(|name| !is_generic_keyboard_name(name)) {
+        return name.trim().into();
     }
+    if let Some(manufacturer) = manufacturer.filter(|value| {
+        let value = value.trim();
+        !value.is_empty() && !is_generic_keyboard_name(value)
+    }) {
+        return format!("{} 키보드", manufacturer.trim());
+    }
+    if let Some(name) = known_keyboard_product(vendor, product) {
+        return name.into();
+    }
+    if let Some(name) = known_integrated_keyboard(instance_id) {
+        return name.into();
+    }
+    if let Some(vendor_name) = vendor.and_then(known_keyboard_vendor) {
+        return format!("{vendor_name} 키보드");
+    }
+    match (vendor, product) {
+        (Some(vendor), Some(product)) => format!("USB 키보드 (VID {vendor} / PID {product})"),
+        _ => "Windows 기본 키보드".into(),
+    }
+}
+
+fn known_keyboard_product(vendor: Option<&str>, product: Option<&str>) -> Option<&'static str> {
+    match (
+        vendor?.to_ascii_uppercase().as_str(),
+        product?.to_ascii_uppercase().as_str(),
+    ) {
+        ("0853", "0100") => Some("Topre 키보드"),
+        ("2B89", "6209") => Some("iBasso DC-Series 미디어 입력 장치"),
+        _ => None,
+    }
+}
+
+fn known_integrated_keyboard(instance_id: Option<&str>) -> Option<&'static str> {
+    let instance_id = instance_id?.to_ascii_uppercase();
+    if instance_id.contains("ACPI\\LEN") {
+        Some("Lenovo 내장 키보드")
+    } else if instance_id.contains("HID\\INTC") {
+        Some("Intel 통합 키보드 장치")
+    } else {
+        None
+    }
+}
+
+fn known_keyboard_vendor(vendor: &str) -> Option<&'static str> {
+    match vendor.to_ascii_uppercase().as_str() {
+        "03F0" => Some("HP"),
+        "045E" => Some("Microsoft"),
+        "046D" => Some("Logitech"),
+        "04D9" => Some("Holtek"),
+        "04E8" => Some("Samsung"),
+        "05AC" => Some("Apple"),
+        "0B05" => Some("ASUS"),
+        "1038" => Some("SteelSeries"),
+        "1532" => Some("Razer"),
+        "17EF" => Some("Lenovo"),
+        "1B1C" => Some("Corsair"),
+        "0853" => Some("Topre"),
+        "2B89" => Some("iBasso"),
+        "3434" => Some("Keychron"),
+        "413C" => Some("Dell"),
+        _ => None,
+    }
+}
+
+fn is_generic_keyboard_name(name: &str) -> bool {
+    let normalized: String = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .collect();
+    normalized.starts_with("hidkeyboard")
+        || normalized.starts_with("hidcompliantkeyboard")
+        || normalized.starts_with("usbkeyboard")
+        || normalized.starts_with("windowskeyboard")
+        || normalized.starts_with("generickeyboard")
+        || normalized.starts_with("hid키보드")
+        || normalized.starts_with("usb키보드")
+        || matches!(
+            normalized.as_str(),
+            "keyboarddevice"
+                | "usbinputdevice"
+                | "standardkeyboard"
+                | "standardps2keyboard"
+                | "ps2keyboard"
+                | "hid키보드"
+                | "표준키보드"
+                | "표준ps2키보드"
+        )
 }
 
 fn inventory_id(path: &str) -> String {
@@ -407,14 +523,6 @@ pub fn record_window_system_key(
     shared
         .capture
         .enqueue_window_system_key(virtual_key, scan_code, extended, is_key_down)
-}
-
-/// Ends the active capture from a reliable top-level activation lifecycle
-/// message. This is intentionally separate from WebView2 child focus events.
-pub fn force_end_active_capture() {
-    if let Some(shared) = SHARED.load_full() {
-        shared.capture.force_end();
-    }
 }
 
 struct Shared {
@@ -676,8 +784,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
     };
     let key = vk_name(data.vkCode, data.scanCode, data.flags);
     if let Some(shared) = SHARED.load_full()
-        && shared.capture.is_active()
-        && shared.capture.enqueue(key.clone(), phase)
+        && enqueue_physical_capture(&shared.capture, key.clone(), phase)
     {
         // A physical key can win the race with the posted release request.
         // Its event is already queued, so it remains intact while we release.
@@ -695,6 +802,10 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
     } else {
         unsafe { CallNextHookEx(null_mut(), code, wparam, lparam) }
     }
+}
+
+fn enqueue_physical_capture(capture: &CaptureState, key: String, phase: KeyPhase) -> bool {
+    capture.is_active() && capture.enqueue(key, phase)
 }
 
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -1238,6 +1349,94 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_human_keyboard_names_before_hardware_fallbacks() {
+        assert_eq!(
+            human_keyboard_name(
+                Some("HID Keyboard Device"),
+                Some("Logitech"),
+                Some("046D"),
+                Some("C31C"),
+                None,
+                false,
+            ),
+            "Logitech 키보드"
+        );
+        assert_eq!(
+            human_keyboard_name(
+                Some("Keychron K8 Pro"),
+                Some("Keychron"),
+                Some("3434"),
+                Some("01A0"),
+                None,
+                false,
+            ),
+            "Keychron K8 Pro"
+        );
+        assert_eq!(
+            human_keyboard_name(
+                Some("HID 키보드 장치"),
+                Some("(표준 키보드)"),
+                Some("0853"),
+                Some("0100"),
+                Some(r"HID\VID_0853&PID_0100\8&12EDED27&0&0000"),
+                false,
+            ),
+            "Topre 키보드"
+        );
+        assert_eq!(
+            human_keyboard_name(
+                Some("표준 PS/2 키보드"),
+                Some("(표준 키보드)"),
+                None,
+                None,
+                Some(r"ACPI\LEN0071\4&34630EB1&0"),
+                false,
+            ),
+            "Lenovo 내장 키보드"
+        );
+    }
+
+    #[test]
+    fn active_capture_consumes_windows_key_before_runtime_dispatch() {
+        let capture = CaptureState::new();
+        capture.session_id.store(5, Ordering::Release);
+        capture.active.store(true, Ordering::Release);
+
+        assert!(enqueue_physical_capture(
+            &capture,
+            "MetaLeft".into(),
+            KeyPhase::Down
+        ));
+        assert_eq!(capture.drain(5).events[0].key, "MetaLeft");
+    }
+
+    #[test]
+    fn capture_queue_preserves_win_space_without_releasing_ownership() {
+        let capture = CaptureState::new();
+        capture.session_id.store(6, Ordering::Release);
+        capture.active.store(true, Ordering::Release);
+
+        for (key, phase) in [
+            ("MetaLeft", KeyPhase::Down),
+            ("Space", KeyPhase::Down),
+            ("Space", KeyPhase::Up),
+            ("MetaLeft", KeyPhase::Up),
+        ] {
+            assert!(enqueue_physical_capture(&capture, key.into(), phase));
+        }
+        let drain = capture.drain(6);
+        assert!(drain.active);
+        assert_eq!(
+            drain
+                .events
+                .iter()
+                .map(|event| event.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["MetaLeft", "Space", "Space", "MetaLeft"]
+        );
+    }
+
+    #[test]
     fn capture_queue_preserves_alt_space_down_and_up_for_its_session() {
         let capture = CaptureState::new();
         capture.session_id.store(7, Ordering::Release);
@@ -1488,7 +1687,7 @@ mod tests {
         assert!(!is_virtual_device_path(path));
         assert_eq!(
             keyboard_display_name(Some("046D"), Some("C31C"), false),
-            "HID 키보드 · VID_046D / PID_C31C"
+            "Logitech 키보드"
         );
     }
 

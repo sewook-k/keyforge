@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeProfile, makeRule } from '../data';
 import { keyforgeBridge, type KeyCaptureDrain } from '../lib/bridge';
-import type { Profile } from '../types';
+import type { KeyboardDeviceInfo, Profile } from '../types';
 import { ProfileEditor } from './ProfileEditor';
 
 describe('ProfileEditor', () => {
@@ -60,6 +60,82 @@ describe('ProfileEditor', () => {
     expect(await within(captureDialog).findByText('AltLeft + Space')).toBeInTheDocument();
     await user.click(within(captureDialog).getByRole('button', { name: '이 입력 사용' }));
     await waitFor(() => expect(endCapture).toHaveBeenCalledTimes(1));
+  });
+
+  it('offers four manual input-key slots for reserved shortcuts', async () => {
+    const user = userEvent.setup();
+    const profile: Profile = {
+      ...makeProfile('Four input keys'),
+      rules: [{ ...makeRule('ControlLeft', 'Escape'), order: 0 }],
+    };
+
+    render(
+      <ProfileEditor
+        open
+        profile={profile}
+        isNew={false}
+        saving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn(async (_profile: Profile): Promise<void> => undefined)}
+      />,
+    );
+
+    const profileDialog = await screen.findByRole('dialog', { name: 'Four input keys' });
+    await user.click(within(profileDialog).getByRole('button', { name: '편집' }));
+    const ruleDialog = await screen.findByRole('dialog', { name: '규칙 편집' });
+
+    expect(within(ruleDialog).getByLabelText('입력 키 목록 4')).toBeInTheDocument();
+    await user.selectOptions(within(ruleDialog).getByLabelText('입력 키 목록 4'), 'S');
+    expect(within(ruleDialog).getByLabelText('입력 키 조합 직접 입력')).toHaveValue('ControlLeft + S');
+  });
+
+  it('activates a profile while a selected human-readable keyboard is connected', async () => {
+    const user = userEvent.setup();
+    const keyboard: KeyboardDeviceInfo = {
+      id: 'rawkbd-keychron-k8',
+      name: 'Keychron K8 Pro',
+      devicePath: String.raw`\\?\HID#VID_3434&PID_01A0&MI_00#7&1234&0&0000`,
+      manufacturer: 'Keychron',
+      instanceId: null,
+      containerId: null,
+      hardwareIds: [],
+      locationPaths: [],
+      vendorId: '3434',
+      productId: '01A0',
+      interfaceId: '00',
+      keyboardType: 4,
+      keyboardSubType: 0,
+      keyboardMode: 1,
+      functionKeyCount: 12,
+      indicatorCount: 3,
+      totalKeyCount: 104,
+      isVirtual: false,
+      source: 'raw_input',
+    };
+    vi.spyOn(keyforgeBridge, 'listConnectedKeyboards').mockResolvedValue([keyboard]);
+    const onSave = vi.fn(async (_profile: Profile): Promise<void> => undefined);
+    const profile: Profile = {
+      ...makeProfile('Keyboard activation'),
+      rules: [{ ...makeRule('ControlLeft', 'Escape'), order: 0 }],
+    };
+
+    render(<ProfileEditor open profile={profile} isNew={false} saving={false} onClose={vi.fn()} onSave={onSave} />);
+
+    const profileDialog = await screen.findByRole('dialog', { name: 'Keyboard activation' });
+    await user.click(within(profileDialog).getByRole('button', { name: '적용 조건' }));
+    expect(await within(profileDialog).findByText('Keychron K8 Pro')).toBeInTheDocument();
+    await user.click(within(profileDialog).getByRole('switch', { name: 'Keychron K8 Pro 연결 시 프로필 활성화' }));
+    await user.click(within(profileDialog).getByRole('button', { name: '저장 및 적용' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].activation.connectedKeyboards).toEqual([{
+      vendorId: '3434',
+      productId: '01A0',
+      interfaceId: '00',
+      manufacturerContains: 'Keychron',
+      nameContains: 'Keychron K8 Pro',
+      isVirtual: false,
+    }]);
   });
 
   it('uses the native capture stream for AltLeft + Space, applies it, and saves the rule', async () => {
@@ -602,9 +678,10 @@ describe('ProfileEditor', () => {
     expect(endCapture).toHaveBeenCalledOnce();
   });
 
-  it('does not open a capture dialog when the native guard cannot be enabled', async () => {
+  it('does not open a capture dialog when native capture cannot be started', async () => {
     const user = userEvent.setup();
-    vi.spyOn(keyforgeBridge, 'beginKeyCapture').mockRejectedValue(new Error('native guard unavailable'));
+    vi.spyOn(keyforgeBridge, 'beginKeyCapture').mockRejectedValue(new Error('native capture unavailable'));
+
     const profile: Profile = {
       ...makeProfile('Capture guard failure'),
       rules: [{ ...makeRule('ControlLeft', 'Escape'), order: 0 }],
@@ -626,7 +703,7 @@ describe('ProfileEditor', () => {
     const ruleDialog = await screen.findByRole('dialog', { name: '규칙 편집' });
     await user.click(within(ruleDialog).getByRole('button', { name: '입력 키 직접 누르기' }));
 
-    expect(await within(ruleDialog).findByText('키 캡처 보호를 시작하지 못했습니다. native guard unavailable')).toBeInTheDocument();
+    expect(await within(ruleDialog).findByText('키 캡처를 시작하지 못했습니다. native capture unavailable')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: '입력 키 선택' })).not.toBeInTheDocument();
   });
 

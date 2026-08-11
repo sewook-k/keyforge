@@ -364,6 +364,36 @@ mod tests {
     }
 
     #[test]
+    fn schema_four_activation_metadata_loads_without_startup_failure() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let repo = SettingsRepository::new(&path);
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value["schemaVersion"] = 4.into();
+        value["profiles"][0]["activation"] = serde_json::json!({
+            "connectedKeyboards": [{
+                "vendorId": "0853",
+                "productId": "0100",
+                "interfaceId": null,
+                "manufacturerContains": "표준 키보드",
+                "nameContains": "표준 PS/2 키보드",
+                "isVirtual": false
+            }]
+        });
+        fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let loaded = repo.load_or_default().unwrap();
+        assert_eq!(loaded.schema_version, crate::CURRENT_SCHEMA_VERSION);
+        assert_eq!(loaded.profiles[0].activation.connected_keyboards.len(), 1);
+        assert_eq!(
+            loaded.profiles[0].activation.connected_keyboards[0]
+                .name_contains
+                .as_deref(),
+            Some("표준 PS/2 키보드")
+        );
+    }
+
+    #[test]
     fn rejects_stale_writer() {
         let dir = tempdir().unwrap();
         let repo = SettingsRepository::new(dir.path().join("settings.json"));

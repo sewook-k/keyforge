@@ -22,7 +22,8 @@ KeyForge 0.1.19 intentionally focuses on stable global key and mouse remapping.
 - Macro, text automation, auto-click, coordinate click, file/URL launch,
   clipboard slots, profile-switch actions, window tools, and mock device lists
   are removed. Schema v2 settings drop only rules using those actions while
-  retaining supported rules during migration to schema v3.
+  retaining supported rules during migration to schema v4. Schema v4 preserves
+  profile keyboard activation metadata for connection-based profile activation.
 - The key inspector observes only events sent to its focused capture area. It
   shows browser `code`, `key`, location, and a legacy keyCode/VK reference; an
   exact Windows scan code requires a future native inspection channel.
@@ -30,18 +31,29 @@ KeyForge 0.1.19 intentionally focuses on stable global key and mouse remapping.
   hook creates a short capture session. Physical key-down/key-up records are
   placed in a bounded native queue before Windows or the WebView can process
   them, so `Alt+Space`, `Alt+F4`, `F10`, `Shift+F10`, and the Apps key do not
-  open native menus or trigger mappings. If Tao/WebView2 routes a system key
+  open native menus or trigger mappings. Tao/WebView2 routes a system key
   through a same-thread WebView host window, native subclasses record
   `WM_SYSKEYDOWN`/`WM_SYSKEYUP` in the same queue and return zero before
   `DefWindowProc` can open a system menu. WebView child subclasses are refreshed
   at each capture start. If Windows has already translated `Alt+Space` into
   `WM_SYSCOMMAND(SC_KEYMENU, Space)`, the top-level subclass reconstructs the
-  complete left/right Alt plus Space chord in that queue before consuming the
-  menu command. The session ends on Use, Cancel,
-  dialog unmount, actual `WM_ACTIVATEAPP(FALSE)`, window hide, close, destroy,
-  or app exit; a WebView2 child-focus transition does not end it. Secure
+  complete left/right Alt plus Space chord in that queue before consuming the menu
+  command. Screenshot shortcuts (`Win+Shift+S` and `PrintScreen`) and the input
+  language switch chord (`Win+Space`) are kept active through the shell's temporary
+  app-deactivation transition. The capture modal owns the session, so
+  `WM_ACTIVATEAPP(FALSE)` does not end it. The session ends on Use, Cancel, dialog
+  unmount, window hide, close, destroy, or app exit. Secure
   Desktop and shell-reserved combinations such as `Ctrl+Alt+Delete` and `Win+L`
   remain unavailable to a normal user-mode app.
+- While key capture is active, KeyForge consumes normal and system key window
+  messages as well as character, menu, context, and app-command messages. This
+  keeps browser actions and ordinary Windows shortcuts from running while the
+  user chooses a chord; secure-desktop shortcuts remain outside a user-mode
+  application's control.
+- A keyboard-selected profile activates while one of its selected keyboards is
+  connected. The low-level Windows hook does not expose the originating Raw Input
+  device, so it cannot apply different mappings to two keyboards pressed at the
+  same time; device selection is connection-based rather than per-keystroke.
 - Notifications are shown in the in-app toast and activity feed. Windows Action
   Center delivery is not connected yet.
 - `launchAtLogin` is an explicit opt-in current-user Windows `Run` registration;

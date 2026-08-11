@@ -62,12 +62,26 @@ export interface Profile {
   name: string;
   enabled: boolean;
   scope: ProfileScope;
+  activation: ProfileActivation;
   rules: Rule[];
   enableOnStartup: boolean;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
   lastRunAt?: string | null;
+}
+
+export interface ProfileActivation {
+  connectedKeyboards: ConnectedKeyboardActivation[];
+}
+
+export interface ConnectedKeyboardActivation {
+  vendorId: string | null;
+  productId: string | null;
+  interfaceId: string | null;
+  manufacturerContains: string | null;
+  nameContains: string | null;
+  isVirtual: boolean;
 }
 
 export type ThemePreference = 'system' | 'light' | 'dark';

@@ -1,22 +1,28 @@
 use directories::ProjectDirs;
 use keyforge_config::{
-    ActionResult, ActionStatus, Recovery, RecoveryAction, RepositoryError, Settings,
-    SettingsRepository, validate,
+    ActionResult, ActionStatus, ConnectedKeyboardActivation, Profile, Recovery, RecoveryAction,
+    RepositoryError, Settings, SettingsRepository, validate,
 };
-use keyforge_engine::CompiledRules;
+use keyforge_engine::{CompileError, CompiledRules};
 use keyforge_platform_windows::{
     DeviceInventoryError, HookService, LaunchAtLoginError, LaunchAtLoginRegistration,
     list_connected_keyboards, restore_launch_at_login, set_launch_at_login,
     snapshot_launch_at_login,
 };
 pub use keyforge_platform_windows::{
-    KeyCaptureDrain, KeyCaptureSession, KeyboardDeviceInfo, force_end_active_capture,
-    record_window_system_key,
+    KeyCaptureDrain, KeyCaptureSession, KeyboardDeviceInfo, record_window_system_key,
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use thiserror::Error;
 
 const MAX_ACTIVITY: usize = 200;
@@ -97,6 +103,7 @@ pub struct AppService {
     hook: Mutex<Option<HookService>>,
     hook_error: RwLock<Option<String>>,
     activity: Mutex<VecDeque<ActionResult>>,
+    active_profile_count: AtomicUsize,
     operation: Mutex<()>,
     launch_at_login: Arc<dyn LaunchAtLoginRegistrar>,
 }
@@ -127,11 +134,17 @@ impl AppService {
         if !repository.path().exists() {
             settings = repository.save(settings, 0)?;
         }
-        let compiled = CompiledRules::compile(&settings)?;
+        let (compiled, active_profile_count) = compile_for_connected_keyboards(
+            &settings,
+            &list_connected_keyboards().unwrap_or_default(),
+        );
         let (hook, hook_error) = if enable_hooks {
-            match HookService::start(compiled) {
-                Ok(hook) => (Some(hook), None),
-                Err(error) => (None, Some(error.to_string())),
+            match compiled {
+                Ok(compiled) => match HookService::start(compiled) {
+                    Ok(hook) => (Some(hook), None),
+                    Err(error) => (None, Some(error.to_string())),
+                },
+                Err(error) => (None, Some(format!("input rules are unavailable: {error}"))),
             }
         } else {
             (None, Some("input hooks disabled for this service".into()))
@@ -142,6 +155,7 @@ impl AppService {
             hook: Mutex::new(hook),
             hook_error: RwLock::new(hook_error),
             activity: Mutex::new(VecDeque::new()),
+            active_profile_count: AtomicUsize::new(active_profile_count),
             operation: Mutex::new(()),
             launch_at_login,
         })
@@ -157,7 +171,6 @@ impl AppService {
     }
 
     pub fn runtime_state(&self) -> RuntimeState {
-        let settings = self.settings.read();
         let hook = self.hook.lock();
         let installed = hook.as_ref().is_some_and(HookService::is_installed);
         let paused = hook.as_ref().is_some_and(HookService::is_paused);
@@ -169,11 +182,7 @@ impl AppService {
             } else {
                 EngineState::Running
             },
-            active_profile_count: settings
-                .profiles
-                .iter()
-                .filter(|profile| profile.enabled && !profile.archived)
-                .count(),
+            active_profile_count: self.active_profile_count.load(Ordering::Acquire),
             hook_installed: installed,
             capabilities: vec![
                 "keyboard_remap".into(),
@@ -187,7 +196,23 @@ impl AppService {
     }
 
     pub fn connected_keyboards(&self) -> Result<Vec<KeyboardDeviceInfo>, DeviceInventoryError> {
-        list_connected_keyboards()
+        let keyboards = list_connected_keyboards()?;
+        self.refresh_keyboard_activated_profiles(&keyboards);
+        Ok(keyboards)
+    }
+
+    fn refresh_keyboard_activated_profiles(&self, keyboards: &[KeyboardDeviceInfo]) {
+        let settings = self.settings.read().clone();
+        let (compiled, active_profile_count) =
+            compile_for_connected_keyboards(&settings, keyboards);
+        let Ok(compiled) = compiled else {
+            return;
+        };
+        if let Some(hook) = self.hook.lock().as_ref().filter(|hook| hook.is_installed()) {
+            hook.update_rules(compiled);
+        }
+        self.active_profile_count
+            .store(active_profile_count, Ordering::Release);
     }
 
     pub fn set_key_capture_window(&self, hwnd: isize) {
@@ -317,7 +342,11 @@ impl AppService {
         draft: Settings,
         expected_revision: u64,
     ) -> Result<SaveResponse, RepositoryError> {
-        let compiled = CompiledRules::compile(&draft).map_err(|error| {
+        let (compiled, active_profile_count) = compile_for_connected_keyboards(
+            &draft,
+            &list_connected_keyboards().unwrap_or_default(),
+        );
+        let compiled = compiled.map_err(|error| {
             RepositoryError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 error.to_string(),
@@ -326,7 +355,12 @@ impl AppService {
         let saved = self.repository.save(draft, expected_revision)?;
         let mut compiled = compiled;
         if compiled.revision() != saved.revision {
-            compiled = CompiledRules::compile(&saved).map_err(|error| {
+            compiled = compile_for_connected_keyboards(
+                &saved,
+                &list_connected_keyboards().unwrap_or_default(),
+            )
+            .0
+            .map_err(|error| {
                 RepositoryError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     error.to_string(),
@@ -361,6 +395,8 @@ impl AppService {
             };
         result.details = Some(json!({"stage": "verified", "settingsPath": self.repository.path()}));
         *self.settings.write() = saved.clone();
+        self.active_profile_count
+            .store(active_profile_count, Ordering::Release);
         self.push_activity(result.clone());
         Ok(SaveResponse {
             settings: saved,
@@ -479,6 +515,94 @@ impl AppService {
     }
 }
 
+/// Builds the hook snapshot for profiles that are currently eligible to run.
+/// A low-level Windows keyboard hook does not contain a Raw Input device handle,
+/// so activation intentionally means "selected keyboard is connected", not
+/// "only events originating from that physical keyboard".
+fn compile_for_connected_keyboards(
+    settings: &Settings,
+    keyboards: &[KeyboardDeviceInfo],
+) -> (Result<CompiledRules, CompileError>, usize) {
+    let mut active_settings = settings.clone();
+    active_settings
+        .profiles
+        .retain(|profile| profile_is_active(profile, keyboards));
+    let active_profile_count = active_settings
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled && !profile.archived)
+        .count();
+    (
+        CompiledRules::compile(&active_settings),
+        active_profile_count,
+    )
+}
+
+fn profile_is_active(profile: &Profile, keyboards: &[KeyboardDeviceInfo]) -> bool {
+    profile.activation.connected_keyboards.is_empty()
+        || profile
+            .activation
+            .connected_keyboards
+            .iter()
+            .any(|activation| {
+                keyboards
+                    .iter()
+                    .any(|keyboard| keyboard_matches_activation(keyboard, activation))
+            })
+}
+
+fn keyboard_matches_activation(
+    keyboard: &KeyboardDeviceInfo,
+    activation: &ConnectedKeyboardActivation,
+) -> bool {
+    let has_hardware_identity = activation
+        .vendor_id
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
+        || activation
+            .product_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+        || activation
+            .interface_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty());
+    keyboard.is_virtual == activation.is_virtual
+        && optional_equals(
+            activation.vendor_id.as_deref(),
+            keyboard.vendor_id.as_deref(),
+        )
+        && optional_equals(
+            activation.product_id.as_deref(),
+            keyboard.product_id.as_deref(),
+        )
+        && optional_equals(
+            activation.interface_id.as_deref(),
+            keyboard.interface_id.as_deref(),
+        )
+        && (has_hardware_identity
+            || (optional_contains(
+                activation.manufacturer_contains.as_deref(),
+                keyboard.manufacturer.as_deref(),
+            ) && optional_contains(activation.name_contains.as_deref(), Some(&keyboard.name))))
+}
+
+fn optional_equals(expected: Option<&str>, actual: Option<&str>) -> bool {
+    match expected.filter(|value| !value.is_empty()) {
+        Some(expected) => actual.is_some_and(|actual| actual.eq_ignore_ascii_case(expected)),
+        None => true,
+    }
+}
+
+fn optional_contains(expected: Option<&str>, actual: Option<&str>) -> bool {
+    match expected.filter(|value| !value.is_empty()) {
+        Some(expected) => {
+            actual.is_some_and(|actual| actual.to_lowercase().contains(&expected.to_lowercase()))
+        }
+        None => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +669,67 @@ mod tests {
         registrar: Arc<FakeLaunchAtLoginRegistrar>,
     ) -> AppService {
         AppService::new_with_launch_at_login_registrar(path, false, registrar).unwrap()
+    }
+
+    fn keyboard(vendor_id: &str, product_id: &str, name: &str) -> KeyboardDeviceInfo {
+        KeyboardDeviceInfo {
+            id: format!("rawkbd-{vendor_id}-{product_id}"),
+            name: name.into(),
+            device_path: format!(r"\\?\HID#VID_{vendor_id}&PID_{product_id}"),
+            manufacturer: Some("KeyForge Test Labs".into()),
+            instance_id: None,
+            container_id: None,
+            hardware_ids: Vec::new(),
+            location_paths: Vec::new(),
+            vendor_id: Some(vendor_id.into()),
+            product_id: Some(product_id.into()),
+            interface_id: Some("00".into()),
+            keyboard_type: 4,
+            keyboard_sub_type: 0,
+            keyboard_mode: 1,
+            function_key_count: 12,
+            indicator_count: 3,
+            total_key_count: 104,
+            is_virtual: false,
+            source: "raw_input".into(),
+        }
+    }
+
+    #[test]
+    fn keyboard_activation_only_compiles_profiles_for_connected_keyboards() {
+        let mut settings = Settings::default();
+        let mut selected = Profile::new("Keychron profile");
+        selected.rules.push(Rule::key_remap("CapsLock", "Escape"));
+        selected
+            .activation
+            .connected_keyboards
+            .push(ConnectedKeyboardActivation {
+                vendor_id: Some("3434".into()),
+                product_id: Some("01A0".into()),
+                interface_id: Some("00".into()),
+                manufacturer_contains: Some("keyforge test".into()),
+                name_contains: Some("Keychron".into()),
+                is_virtual: false,
+            });
+        settings.profiles = vec![selected];
+
+        let (compiled, active_profiles) = compile_for_connected_keyboards(
+            &settings,
+            &[keyboard(
+                "3434",
+                "01A0",
+                "Keychron K8 Pro (Windows display name)",
+            )],
+        );
+        assert_eq!(active_profiles, 1);
+        assert_eq!(compiled.unwrap().len(), 1);
+
+        let (compiled, active_profiles) = compile_for_connected_keyboards(
+            &settings,
+            &[keyboard("046D", "C31C", "Logitech MX Keys")],
+        );
+        assert_eq!(active_profiles, 0);
+        assert!(compiled.unwrap().is_empty());
     }
 
     #[test]
